@@ -15,34 +15,74 @@ from bs4 import BeautifulSoup
 import urllib
 import os
 import random
+import threading
 
 
-class Spider():
+# 所要抓取的页面路径
+urls = []
+
+# 所要抓取的图组路径
+group_urls = {}
+
+# 线程锁
+threadLock = threading.Lock()
+
+class Spider(threading.Thread):
     
-    def __init__(self, target_url, headers, start_page=1, end_page=1, Debug=False):
+    def __init__(self, target_url, headers, start_page=1, end_page=1, Debug=False, threadId=0, mode='get_urls'):
+        threading.Thread.__init__(self)
         self.target_url = target_url
         self.headers = headers
         if start_page > end_page:
             raise ValueError('end_page must be greater than or equal to start_page')
         self.start_page = start_page
-        self.end_page = end_page
-        #self.urls = []
-        self.group_urls = {}
+        self.end_page = end_page        
         self.Debug = Debug
+        self.threadId = threadId
+        self.mode = mode
 
 
-    # 获取单页中所有图组路径
-    def get_urls(self):
-        urls = []
+    # 线程创建提示
+    def born(self):
+        print('thread {} was born.'.format(self.threadId))
+
+
+    # 线程结束提示
+    def leave(self):
+        print('thread {} is leaving.'.format(self.threadId))
+
+
+    # 获取所有要抓取的页面路径
+    def get_page_urls(self):
+        global urls
         for i in range(self.start_page, self.end_page+1):
             if i == 1:
                 url = 'https://www.ivsky.com/tupian/dongwutupian/'
             else:
                 url = self.target_url % i # 将页数补入链接中
             urls.append(url)
+        print('已获取所要抓取页面地址')
+        #print(self.urls)
 
-        while len(urls) > 0:
-            page_url = urls.pop()
+
+    # 获取单页中所有图组路径
+    def get_urls(self):
+        while True:            
+            # 获取锁，用于线程同步
+            threadLock.acquire()
+            #print('线程{}进入循环，含url数{}'.format(self.threadId, len(urls)))
+
+            if len(urls) > 0:
+                #print('线程{}开始获取图组url'.format(self.threadId))
+                page_url = urls.pop()
+                threadLock.release()  # 释放锁，开启下一个线程
+            else:
+                threadLock.release()
+                self.leave()
+
+                #print('线程{}退出获取图组url'.format(self.threadId))
+                return
+
             resp = requests.get(page_url, headers=self.headers, timeout=5)
             soup = BeautifulSoup(resp.text, 'lxml')
 
@@ -55,19 +95,33 @@ class Spider():
                 tags += children.find_all('a')
 
             # 获取所有二级节点的链接
+            global group_urls
             for tag in tags:
                 #print(link['href'])
-                #self.group_urls.append(tag['href'])
-                self.group_urls[tag['title']] = tag['href']
+                #group_urls.append(tag['href'])
+                threadLock.acquire()
+                group_urls[tag['title']] = tag['href']                
+                # 释放锁，开启下一个线程
+                threadLock.release()
 
-            print('已获取所有图组url')
 
 
     # 获取一图组内所有图片路径
     def get_img(self):
         head_url = 'https://www.ivsky.com/'
-        while len(self.group_urls) > 0:
-            group_name, group_url = self.group_urls.popitem()
+        while True:
+            threadLock.acquire()
+            #print('线程{}进入循环，含group数{}'.format(self.threadId, len(group_urls)))
+
+            if len(group_urls) > 0:
+                #print('线程{}开始下载'.format(self.threadId))
+
+                group_name, group_url = group_urls.popitem()
+                threadLock.release()
+            else:
+                threadLock.release()
+                self.leave()
+                return
             print('开始处理{0}'.format(group_name))
             resp = requests.get(head_url+group_url, headers=self.headers, timeout=5)
             soup = BeautifulSoup(resp.text, 'lxml')
@@ -102,8 +156,7 @@ class Spider():
                 img_url = head + tail[0] + '.jpg'
                 img_urls.append(img_url)
             self.download(group_name, img_urls)
-            time.sleep(3*(random.random()))
-        print('所有图片全下载完成')
+            time.sleep(5 * (random.random() + 1))
 
 
     # 下载图片
@@ -111,7 +164,7 @@ class Spider():
         # 图组名
         path = 'F:\\code\\img\\' + folder
         if os.path.exists(path): # 判断文件夹是否存在
-            print('文件夹已存在')
+            print('{}文件夹已存在'.format(folder))
             return
         else:
             os.mkdir(path) # 创建文件夹
@@ -122,33 +175,53 @@ class Spider():
 
             # 将远程数据下载到本地，第二个参数就是要保存到本地的文件名.py2不加.request
             urllib.request.urlretrieve(url, path+'\\'+name)
-            time.sleep(random.random())
+            time.sleep(random.random() + 1)
         print('{0}下载完成'.format(folder))
 
 
     # 爬虫主函数
     def run(self):
-        if self.Debug:
-            print('0')
-        #self.get_page_urls()
-        if self.Debug:
-            print('1')
-        self.get_urls()
-        if self.Debug:
-            print('2')
-        self.get_img()
+        self.born()
+        if self.mode == 'get_urls':
+            if self.Debug:
+                print('1')
+            self.get_urls()
+        elif self.mode == 'get_imgs':
+            if self.Debug:
+                print('2')
+            self.get_img()
+        else:
+            print('thread {} mode error')
 
 
 def main():
     Debug = True
     headers = {'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.88 Safari/537.36'}
     target_url = 'https://www.ivsky.com/tupian/dongwutupian/index_%d.html'
-    spider = Spider(target_url, headers, 1, 1, Debug)
-    #print('zz')
+    threads = []
     st = time.time()
-    spider.run()
+
+    for i in range(1, 3):
+        t = Spider(target_url, headers, threadId=i, mode='get_urls')
+        if i == 1:
+            t.get_page_urls()
+        t.start()
+        # t.join() # 调用join后主线程会暂停，等待该线程结束
+        threads.append(t)
+    for t in threads:
+        t.join()
+    threads.clear()
+
+    for i in range(3, 8):
+        t = Spider(target_url, headers, threadId=i, mode='get_imgs')  
+        t.start()              
+        threads.append(t)
+    for t in threads:
+        t.join()
+
     et = time.time()
     print('times:{:.2f}'.format(et-st))
+    
 
 if __name__ == '__main__':
     main()
