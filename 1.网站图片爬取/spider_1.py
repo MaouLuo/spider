@@ -27,8 +27,8 @@ group_urls = {}
 # 线程锁
 threadLock = threading.Lock()
 
-class Spider(threading.Thread):
-    
+
+class Spider(threading.Thread):    
     def __init__(self, target_url, headers, start_page=1, end_page=1, Debug=False, threadId=0, mode='get_urls'):
         threading.Thread.__init__(self)
         self.target_url = target_url
@@ -70,8 +70,6 @@ class Spider(threading.Thread):
         while True:            
             # 获取锁，用于线程同步
             threadLock.acquire()
-            #print('线程{}进入循环，含url数{}'.format(self.threadId, len(urls)))
-
             if len(urls) > 0:
                 #print('线程{}开始获取图组url'.format(self.threadId))
                 page_url = urls.pop()
@@ -79,10 +77,7 @@ class Spider(threading.Thread):
             else:
                 threadLock.release()
                 self.leave()
-
-                #print('线程{}退出获取图组url'.format(self.threadId))
                 return
-
             resp = requests.get(page_url, headers=self.headers, timeout=5)
             soup = BeautifulSoup(resp.text, 'lxml')
 
@@ -97,11 +92,8 @@ class Spider(threading.Thread):
             # 获取所有二级节点的链接
             global group_urls
             for tag in tags:
-                #print(link['href'])
-                #group_urls.append(tag['href'])
                 threadLock.acquire()
-                group_urls[tag['title']] = tag['href']                
-                # 释放锁，开启下一个线程
+                group_urls[tag['title']] = tag['href']  
                 threadLock.release()
 
 
@@ -111,11 +103,7 @@ class Spider(threading.Thread):
         head_url = 'https://www.ivsky.com/'
         while True:
             threadLock.acquire()
-            #print('线程{}进入循环，含group数{}'.format(self.threadId, len(group_urls)))
-
             if len(group_urls) > 0:
-                #print('线程{}开始下载'.format(self.threadId))
-
                 group_name, group_url = group_urls.popitem()
                 threadLock.release()
             else:
@@ -138,7 +126,6 @@ class Spider(threading.Thread):
             c_tags = []
             for tag in tags:
                 c_tags += tag.find_all('img')
-            #print(c_tags)
 
             # 获取所有图片的链接
             thumb_urls = [] # 缩略图
@@ -199,6 +186,7 @@ def main():
     headers = {'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.88 Safari/537.36'}
     target_url = 'https://www.ivsky.com/tupian/dongwutupian/index_%d.html'
     threads = []
+
     st = time.time()
 
     for i in range(1, 3):
@@ -210,6 +198,7 @@ def main():
         threads.append(t)
     for t in threads:
         t.join()
+
     threads.clear()
 
     for i in range(3, 8):
@@ -221,7 +210,7 @@ def main():
 
     et = time.time()
     print('times:{:.2f}'.format(et-st))
-    
+
 
 if __name__ == '__main__':
     main()
